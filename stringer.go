@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build go1.5
-
 //Enumer is a tool to generate Go code that adds useful methods to Go enums (constants with a specific type).
 //It started as a fork of Rob Pike’s Stringer tool
 //
@@ -205,7 +203,7 @@ func (g *Generator) parsePackage(directory string, names []string, text interfac
 		if !strings.HasSuffix(name, ".go") {
 			continue
 		}
-		parsedFile, err := parser.ParseFile(fs, name, text, 0)
+		parsedFile, err := parser.ParseFile(fs, name, text, parser.ParseComments)
 		if err != nil {
 			log.Fatalf("parsing package: %s: %s", name, err)
 		}
@@ -246,12 +244,17 @@ func (g *Generator) transformValueNames(values []Value, transformMethod string) 
 		sep = '_'
 	case "kebab":
 		sep = '-'
-	default:
+	case "noop":
 		return
 	}
 
 	for i := range values {
-		values[i].name = strings.ToLower(name.Delimit(values[i].name, sep))
+		if transformMethod == "comment" {
+			values[i].name = values[i].comment
+		} else {
+			values[i].name = strings.ToLower(name.Delimit(values[i].name, sep))
+
+		}
 	}
 }
 
@@ -374,9 +377,10 @@ type Value struct {
 	// this matters is when sorting.
 	// Much of the time the str field is all we need; it is printed
 	// by Value.String.
-	value  uint64 // Will be converted to int64 when needed.
-	signed bool   // Whether the constant is a signed type.
-	str    string // The string representation given by the "go/exact" package.
+	value   uint64 // Will be converted to int64 when needed.
+	signed  bool   // Whether the constant is a signed type.
+	str     string // The string representation given by the "go/exact" package.
+	comment string // The comment on the value
 }
 
 func (v *Value) String() string {
@@ -462,10 +466,14 @@ func (f *File) genDecl(node ast.Node) bool {
 				u64 = uint64(i64)
 			}
 			v := Value{
-				name:   name.Name,
-				value:  u64,
-				signed: info&types.IsUnsigned == 0,
-				str:    value.String(),
+				name:    name.Name,
+				value:   u64,
+				signed:  info&types.IsUnsigned == 0,
+				str:     value.String(),
+				comment: "",
+			}
+			if c := vspec.Comment; c != nil && len(c.List) == 1 {
+				v.comment = strings.TrimSpace(c.Text())
 			}
 			f.values = append(f.values, v)
 		}
